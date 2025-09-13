@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>3D Dodge Game</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #111; }
+    #score {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: white;
+      font-family: Arial, sans-serif;
+      font-size: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div id="score">Score: 0</div>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script>
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Player cube
+    const playerGeometry = new THREE.BoxGeometry(1, 1, 1);
+    const playerMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+    const player = new THREE.Mesh(playerGeometry, playerMaterial);
+    scene.add(player);
+    player.position.y = -4;
+
+    // Ground plane
+    const groundGeometry = new THREE.PlaneGeometry(20, 40);
+    const groundMaterial = new THREE.MeshBasicMaterial({ color: 0x333333, side: THREE.DoubleSide });
+    const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+    ground.rotation.x = Math.PI / 2;
+    ground.position.y = -5.5;
+    scene.add(ground);
+
+    // Lighting
+    const light = new THREE.AmbientLight(0xffffff, 0.8);
+    scene.add(light);
+
+    camera.position.z = 10;
+
+    let obstacles = [];
+    let score = 0;
+    const scoreDisplay = document.getElementById("score");
+
+    function spawnObstacle() {
+      const geometry = new THREE.BoxGeometry(1, 1, 1);
+      const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+      const obstacle = new THREE.Mesh(geometry, material);
+      obstacle.position.x = (Math.random() - 0.5) * 10;
+      obstacle.position.y = 6;
+      scene.add(obstacle);
+      obstacles.push(obstacle);
+    }
+
+    // Controls
+    let moveLeft = false;
+    let moveRight = false;
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowLeft") moveLeft = true;
+      if (e.key === "ArrowRight") moveRight = true;
+    });
+    window.addEventListener("keyup", (e) => {
+      if (e.key === "ArrowLeft") moveLeft = false;
+      if (e.key === "ArrowRight") moveRight = false;
+    });
+
+    // Game loop
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Move player
+      if (moveLeft) player.position.x -= 0.1;
+      if (moveRight) player.position.x += 0.1;
+
+      // Spawn obstacles randomly
+      if (Math.random() < 0.02) spawnObstacle();
+
+      // Move obstacles
+      obstacles.forEach((obstacle, index) => {
+        obstacle.position.y -= 0.05;
+
+        // Collision detection
+        if (Math.abs(player.position.x - obstacle.position.x) < 1 &&
+            Math.abs(player.position.y - obstacle.position.y) < 1) {
+          alert("Game Over! Final Score: " + score);
+          window.location.reload();
+        }
+
+        // Remove off-screen
+        if (obstacle.position.y < -6) {
+          scene.remove(obstacle);
+          obstacles.splice(index, 1);
+          score++;
+          scoreDisplay.textContent = "Score: " + score;
+        }
+      });
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+</body>
+</html>
