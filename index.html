@@ -76,7 +76,9 @@
     scene.add(ground);
 
     // Skybox
-    scene.background = loader.load("https://i.imgur.com/q3Z5ZyX.jpg"); // starry sky
+    // Skybox (star texture)
+const starsTexture = loader.load("https://threejsfundamentals.org/threejs/resources/images/starfield.jpg");
+scene.background = starsTexture;
 
     // Camera
     camera.position.set(0, 4, 8);
