@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D Endless Runner</title>
+  <title>3D Endless Runner with Power-Ups</title>
   <style>
     body { margin: 0; overflow: hidden; background: #111; }
     #ui {
@@ -52,33 +52,43 @@
 
     // Player
     const playerGeometry = new THREE.BoxGeometry(1, 1, 1);
-    const playerMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+    let playerMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
     const player = new THREE.Mesh(playerGeometry, playerMaterial);
     scene.add(player);
     player.position.set(0, 0.5, 0);
 
-    // Lighting
+    // Lights
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
     const dirLight = new THREE.DirectionalLight(0xffffff, 1);
     dirLight.position.set(5, 10, 7);
     scene.add(dirLight);
 
-    // Ground
-    const groundGeometry = new THREE.PlaneGeometry(20, 200, 20, 200);
-    const groundMaterial = new THREE.MeshStandardMaterial({ color: 0x333333, wireframe: false });
-    const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+    // Ground with texture
+    const loader = new THREE.TextureLoader();
+    const groundTexture = loader.load("https://threejsfundamentals.org/threejs/resources/images/checker.png");
+    groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
+    groundTexture.repeat.set(20, 200);
+    const groundMaterial = new THREE.MeshStandardMaterial({ map: groundTexture });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(20, 200), groundMaterial);
     ground.rotation.x = -Math.PI / 2;
     ground.position.z = -100;
     scene.add(ground);
+
+    // Skybox
+    scene.background = loader.load("https://i.imgur.com/q3Z5ZyX.jpg"); // starry sky
 
     // Camera
     camera.position.set(0, 4, 8);
 
     let obstacles = [];
+    let powerUps = [];
     let score = 0;
     let speed = 0.1;
     let gameOver = false;
+    let shieldActive = false;
+    let shieldTimer = 0;
+
     const scoreDisplay = document.getElementById("ui");
     const gameOverScreen = document.getElementById("gameOverScreen");
     const finalScore = document.getElementById("finalScore");
@@ -95,6 +105,17 @@
       obstacles.push(obstacle);
     }
 
+    function spawnPowerUp() {
+      const geometry = new THREE.SphereGeometry(0.5, 16, 16);
+      const material = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff });
+      const powerUp = new THREE.Mesh(geometry, material);
+      powerUp.position.x = (Math.random() - 0.5) * 10;
+      powerUp.position.y = 0.5;
+      powerUp.position.z = -50;
+      scene.add(powerUp);
+      powerUps.push(powerUp);
+    }
+
     // Controls
     let moveLeft = false;
     let moveRight = false;
@@ -108,12 +129,15 @@
     });
 
     function resetGame() {
-      // Reset state
       obstacles.forEach(o => scene.remove(o));
+      powerUps.forEach(p => scene.remove(p));
       obstacles = [];
+      powerUps = [];
       score = 0;
       speed = 0.1;
       gameOver = false;
+      shieldActive = false;
+      player.material.color.set(0x00ff00);
       player.position.set(0, 0.5, 0);
       scoreDisplay.textContent = "Score: 0";
       gameOverScreen.style.display = "none";
@@ -130,30 +154,64 @@
       if (moveLeft && player.position.x > -9) player.position.x -= 0.15;
       if (moveRight && player.position.x < 9) player.position.x += 0.15;
 
-      // Spawn obstacles
+      // Spawn obstacles & power-ups
       if (Math.random() < 0.02 + score * 0.0001) spawnObstacle();
+      if (Math.random() < 0.005) spawnPowerUp();
 
-      // Move obstacles forward
+      // Move obstacles
       obstacles.forEach((obstacle, index) => {
         obstacle.position.z += speed;
 
-        // Collision
         if (Math.abs(player.position.x - obstacle.position.x) < 1 &&
             Math.abs(player.position.z - obstacle.position.z) < 1) {
-          gameOver = true;
-          finalScore.textContent = "Final Score: " + score;
-          gameOverScreen.style.display = "block";
+          if (!shieldActive) {
+            gameOver = true;
+            finalScore.textContent = "Final Score: " + score;
+            gameOverScreen.style.display = "block";
+          } else {
+            scene.remove(obstacle);
+            obstacles.splice(index, 1);
+          }
         }
 
-        // Passed obstacle
         if (obstacle.position.z > 5) {
           scene.remove(obstacle);
           obstacles.splice(index, 1);
           score++;
           scoreDisplay.textContent = "Score: " + score;
-          speed += 0.001; // increase difficulty
+          speed += 0.001;
         }
       });
+
+      // Move power-ups
+      powerUps.forEach((powerUp, index) => {
+        powerUp.position.z += speed;
+
+        if (Math.abs(player.position.x - powerUp.position.x) < 1 &&
+            Math.abs(player.position.z - powerUp.position.z) < 1) {
+          shieldActive = true;
+          shieldTimer = 300; // frames
+          player.material.color.set(0x0099ff);
+          score += 5;
+          scoreDisplay.textContent = "Score: " + score;
+          scene.remove(powerUp);
+          powerUps.splice(index, 1);
+        }
+
+        if (powerUp.position.z > 5) {
+          scene.remove(powerUp);
+          powerUps.splice(index, 1);
+        }
+      });
+
+      // Shield timer
+      if (shieldActive) {
+        shieldTimer--;
+        if (shieldTimer <= 0) {
+          shieldActive = false;
+          player.material.color.set(0x00ff00);
+        }
+      }
 
       // Camera follows
       camera.position.x = player.position.x * 0.5;
