@@ -1,232 +1,186 @@
-// ----------------------------
-// Ultimate 3D Runner Game
-// ----------------------------
-let scene, camera, renderer, player;
-let obstacles = [], coins = [], shields = [];
-let score = 0, gameOver = false;
-const ui = document.getElementById("ui");
+// ---------------------------
+// Mini 3D Shooter (Shell-Shockers style)
+// ---------------------------
+let scene, camera, renderer;
+let player, playerSpeed = 0.2;
+let bullets = [], enemies = [];
+let health = 100, score = 0;
+let gameOver = false;
+let keys = {};
+const uiHealth = document.getElementById("health");
+const uiScore = document.getElementById("score");
 const titleScreen = document.getElementById("titleScreen");
 const startBtn = document.getElementById("startBtn");
 const gameOverScreen = document.getElementById("gameOverScreen");
 const finalScore = document.getElementById("finalScore");
 
-let moveLeft = false, moveRight = false;
-let velocityY = 0, gravity = -0.01, jumpForce = 0.35;
-let isGrounded = true, isSliding = false, slideTimer = 0, slideDuration = 30;
-let shieldActive = false, shieldTimer = 0;
+// Input
+keys = { w: false, a: false, s: false, d: false };
+let mouse = { x: 0, y: 0 };
 
-// Time-based spawn control
-let lastObstacleTime = 0, lastCoinTime = 0, lastShieldTime = 0;
-
+// Start & restart buttons
 startBtn.onclick = () => { titleScreen.style.display = "none"; initGame(); animate(); }
 document.getElementById("restartBtn").onclick = () => { gameOverScreen.style.display = "none"; resetGame(); animate(); }
 
-window.addEventListener("keydown", (e) => {
-  if (e.key === "ArrowLeft") moveLeft = true;
-  if (e.key === "ArrowRight") moveRight = true;
-  if (e.code === "Space" && isGrounded && !isSliding) {
-    velocityY = jumpForce;
-    isGrounded = false;
-  }
-  if (e.key === "Shift" && isGrounded && !isSliding) {
-    isSliding = true;
-    slideTimer = slideDuration;
-    player.scale.y = 0.5;
-    player.position.y = 0.25;
-  }
-});
-window.addEventListener("keyup", (e) => {
-  if (e.key === "ArrowLeft") moveLeft = false;
-  if (e.key === "ArrowRight") moveRight = false;
+// Movement events
+window.addEventListener("keydown", (e) => { if(keys.hasOwnProperty(e.key)) keys[e.key] = true; });
+window.addEventListener("keyup", (e) => { if(keys.hasOwnProperty(e.key)) keys[e.key] = false; });
+
+// Mouse aim
+window.addEventListener("mousemove", (e) => {
+  mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
 });
 
+// Shooting
+window.addEventListener("click", () => { shootBullet(); });
+
+// -------------------
+// Initialization
+// -------------------
 function initGame() {
   scene = new THREE.Scene();
-
-  // Starry sky background
-  const loader = new THREE.TextureLoader();
-  const stars = loader.load("https://threejsfundamentals.org/threejs/resources/images/starfield.jpg");
-  scene.background = stars;
+  scene.background = new THREE.Color(0x222222);
 
   // Camera
-  camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+  camera.position.set(0, 10, 10);
+  camera.lookAt(0,0,0);
 
   // Renderer
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer = new THREE.WebGLRenderer({ antialias:true });
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
 
-  // Player
-  const geometry = new THREE.BoxGeometry(1, 1, 1);
-  const material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-  player = new THREE.Mesh(geometry, material);
-  player.position.set(0, 0.5, 5);
-  scene.add(player);
-
   // Light
-  const light = new THREE.DirectionalLight(0xffffff, 1);
-  light.position.set(5, 10, 7);
+  const light = new THREE.DirectionalLight(0xffffff,1);
+  light.position.set(10,20,10);
   scene.add(light);
 
   // Ground
-  const groundGeo = new THREE.PlaneGeometry(20, 200);
-  const groundMat = new THREE.MeshStandardMaterial({ color: 0x444444 });
+  const groundGeo = new THREE.PlaneGeometry(50,50);
+  const groundMat = new THREE.MeshStandardMaterial({ color:0x444444 });
   const ground = new THREE.Mesh(groundGeo, groundMat);
-  ground.rotation.x = -Math.PI / 2;
+  ground.rotation.x = -Math.PI/2;
   scene.add(ground);
 
-  // Camera initial position
-  camera.position.set(0, 5, 10);
-  camera.lookAt(player.position);
+  // Player
+  const geo = new THREE.CapsuleGeometry(0.5,1,4,8);
+  const mat = new THREE.MeshStandardMaterial({ color:0x00ff00 });
+  player = new THREE.Mesh(geo, mat);
+  player.position.y = 1;
+  scene.add(player);
+
+  // Spawn initial enemies
+  for(let i=0;i<5;i++) spawnEnemy();
 }
 
-// --------------------
-// Spawning Functions
-// --------------------
-function spawnObstacle() {
-  const type = Math.floor(Math.random() * 3);
-  let geo, mat;
+// -------------------
+// Player Shooting
+// -------------------
+function shootBullet() {
+  const geo = new THREE.SphereGeometry(0.1,8,8);
+  const mat = new THREE.MeshStandardMaterial({ color:0xff0000 });
+  const bullet = new THREE.Mesh(geo, mat);
 
-  if (type === 0) { geo = new THREE.BoxGeometry(1, 1, 1); mat = new THREE.MeshStandardMaterial({ color: 0xff0000 }); }
-  else if (type === 1) { geo = new THREE.BoxGeometry(1, 2, 1); mat = new THREE.MeshStandardMaterial({ color: 0x0000ff }); }
-  else { geo = new THREE.BoxGeometry(1, 0.5, 1); mat = new THREE.MeshStandardMaterial({ color: 0xffff00 }); }
+  // Start at player position
+  bullet.position.copy(player.position);
+  bullet.position.y = 1;
 
-  const obs = new THREE.Mesh(geo, mat);
-  obs.position.set(Math.floor(Math.random() * 3) - 1, geo.parameters.height / 2, -50);
-  scene.add(obs);
-  obstacles.push(obs);
+  // Direction
+  const vector = new THREE.Vector3(mouse.x, mouse.y, 0.5);
+  vector.unproject(camera);
+  const dir = vector.sub(camera.position).normalize();
+  bullet.userData.dir = dir;
+
+  bullets.push(bullet);
+  scene.add(bullet);
 }
 
-function spawnCoin() {
-  const geo = new THREE.SphereGeometry(0.3, 16, 16);
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffdd00, emissive: 0xffdd00 });
-  const coin = new THREE.Mesh(geo, mat);
-  coin.position.set(Math.floor(Math.random() * 5) - 2, 0.5, -50);
-  scene.add(coin);
-  coins.push(coin);
+// -------------------
+// Spawn Enemy
+// -------------------
+function spawnEnemy() {
+  const geo = new THREE.CapsuleGeometry(0.5,1,4,8);
+  const mat = new THREE.MeshStandardMaterial({ color:0xff8800 });
+  const enemy = new THREE.Mesh(geo, mat);
+  enemy.position.set((Math.random()-0.5)*20,1,(Math.random()-0.5)*20);
+  scene.add(enemy);
+  enemies.push(enemy);
 }
 
-function spawnShield() {
-  const geo = new THREE.BoxGeometry(0.7, 0.7, 0.7);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff });
-  const shield = new THREE.Mesh(geo, mat);
-  shield.position.set(Math.floor(Math.random() * 5) - 2, 0.5, -50);
-  scene.add(shield);
-  shields.push(shield);
-}
-
-// --------------------
-// Animate / Game Loop
-// --------------------
-function animate(time = 0) {
-  if (gameOver) return;
+// -------------------
+// Animate Loop
+// -------------------
+function animate() {
+  if(gameOver) return;
   requestAnimationFrame(animate);
 
-  // --- Player Movement ---
-  if (moveLeft && player.position.x > -2) player.position.x -= 0.1;
-  if (moveRight && player.position.x < 2) player.position.x += 0.1;
+  // Player movement
+  if(keys.w) player.position.z -= playerSpeed;
+  if(keys.s) player.position.z += playerSpeed;
+  if(keys.a) player.position.x -= playerSpeed;
+  if(keys.d) player.position.x += playerSpeed;
 
-  // Jump & Gravity
-  velocityY += gravity;
-  player.position.y += velocityY;
-  const groundY = isSliding ? 0.25 : 0.5;
-  if (player.position.y <= groundY) {
-    player.position.y = groundY;
-    velocityY = 0;
-    isGrounded = true;
-  }
+  // Rotate player toward mouse
+  const vector = new THREE.Vector3(mouse.x, mouse.y, 0.5).unproject(camera);
+  const dir = vector.sub(camera.position).normalize();
+  const angle = Math.atan2(dir.x, dir.z);
+  player.rotation.y = angle;
 
-  // Slide
-  if (isSliding) {
-    slideTimer--;
-    if (slideTimer <= 0) {
-      isSliding = false;
-      player.scale.y = 1;
-      player.position.y = 0.5;
+  // Move bullets
+  for(let i=bullets.length-1;i>=0;i--) {
+    bullets[i].position.add(bullets[i].userData.dir.clone().multiplyScalar(0.5));
+    // Remove bullets out of arena
+    if(bullets[i].position.length() > 50) {
+      scene.remove(bullets[i]);
+      bullets.splice(i,1);
+    } else {
+      // Check collision with enemies
+      const bulletBox = new THREE.Box3().setFromObject(bullets[i]);
+      for(let j=enemies.length-1;j>=0;j--) {
+        const enemyBox = new THREE.Box3().setFromObject(enemies[j]);
+        if(bulletBox.intersectsBox(enemyBox)) {
+          scene.remove(enemies[j]);
+          enemies.splice(j,1);
+          scene.remove(bullets[i]);
+          bullets.splice(i,1);
+          score += 10;
+          spawnEnemy();
+          break;
+        }
+      }
     }
   }
 
-  // --- Spawn Objects (Time-based) ---
-  if (time - lastObstacleTime > 2000) { spawnObstacle(); lastObstacleTime = time; }
-  if (time - lastCoinTime > 3000) { spawnCoin(); lastCoinTime = time; }
-  if (time - lastShieldTime > 8000) { spawnShield(); lastShieldTime = time; }
-
-  // --- Move & Check Collisions ---
-  moveObjects(obstacles, checkObstacleCollision);
-  moveObjects(coins, checkCoinCollision);
-  moveObjects(shields, checkShieldCollision);
-
-  // --- Shield Timer ---
-  if (shieldActive) {
-    shieldTimer--;
-    if (shieldTimer <= 0) {
-      shieldActive = false;
-      player.material.color.set(0x00ff00);
+  // Move enemies toward player
+  enemies.forEach(e => {
+    const dir = new THREE.Vector3().subVectors(player.position,e.position).normalize();
+    e.position.add(dir.multiplyScalar(0.05));
+    // Enemy collision with player
+    const enemyBox = new THREE.Box3().setFromObject(e);
+    const playerBox = new THREE.Box3().setFromObject(player);
+    if(playerBox.intersectsBox(enemyBox)) {
+      health -= 0.5;
+      if(health <= 0) endGame();
     }
-  }
+  });
 
-  // --- Camera Follow ---
+  // Update UI
+  uiHealth.innerText = "Health: " + Math.floor(health);
+  uiScore.innerText = "Score: " + score;
+
+  // Camera follow player
   camera.position.x += (player.position.x - camera.position.x) * 0.1;
-  camera.position.z = player.position.z + 10;
-  camera.position.y = 5;
+  camera.position.z += (player.position.z + 10 - camera.position.z) * 0.1;
   camera.lookAt(player.position);
 
-  // Render & UI
   renderer.render(scene, camera);
-  score++;
-  ui.innerText = "Score: " + score;
 }
 
-// --------------------
-// Object Movement & Collision
-// --------------------
-function moveObjects(array, collisionFn) {
-  for (let i = array.length - 1; i >= 0; i--) {
-    array[i].position.z += 0.3;
-    collisionFn(array[i], i);
-    if (array[i].position.z > 10) {
-      scene.remove(array[i]);
-      array.splice(i, 1);
-    }
-  }
-}
-
-// --------------------
-// Collision Functions
-// --------------------
-function checkObstacleCollision(obs, i) {
-  const playerBox = new THREE.Box3().setFromObject(player);
-  const obsBox = new THREE.Box3().setFromObject(obs);
-  if (playerBox.intersectsBox(obsBox) && !shieldActive) {
-    endGame();
-  }
-}
-
-function checkCoinCollision(coin, i) {
-  const playerBox = new THREE.Box3().setFromObject(player);
-  const coinBox = new THREE.Box3().setFromObject(coin);
-  if (playerBox.intersectsBox(coinBox)) {
-    score += 5;
-    scene.remove(coin);
-    coins.splice(i, 1);
-  }
-}
-
-function checkShieldCollision(shield, i) {
-  const playerBox = new THREE.Box3().setFromObject(player);
-  const shieldBox = new THREE.Box3().setFromObject(shield);
-  if (playerBox.intersectsBox(shieldBox)) {
-    shieldActive = true;
-    shieldTimer = 300;
-    player.material.color.set(0x0099ff);
-    scene.remove(shield);
-    shields.splice(i, 1);
-  }
-}
-
-// --------------------
+// -------------------
 // End & Reset Game
-// --------------------
+// -------------------
 function endGame() {
   gameOver = true;
   finalScore.innerText = "Final Score: " + score;
@@ -234,18 +188,13 @@ function endGame() {
 }
 
 function resetGame() {
-  obstacles.forEach(o => scene.remove(o));
-  coins.forEach(c => scene.remove(c));
-  shields.forEach(s => scene.remove(s));
-  obstacles = [];
-  coins = [];
-  shields = [];
+  bullets.forEach(b=>scene.remove(b));
+  enemies.forEach(e=>scene.remove(e));
+  bullets = [];
+  enemies = [];
   score = 0;
+  health = 100;
   gameOver = false;
-  player.position.set(0, 0.5, 5);
-  player.scale.y = 1;
-  isSliding = false;
-  velocityY = 0;
-  shieldActive = false;
-  player.material.color.set(0x00ff00);
+  player.position.set(0,1,0);
+  spawnEnemy();
 }
