@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D Endless Runner Deluxe</title>
+  <title>3D Endless Runner</title>
   <style>
     body { margin: 0; overflow: hidden; background: #111; }
     #ui {
@@ -12,7 +12,6 @@
       color: white;
       font-family: Arial, sans-serif;
       font-size: 20px;
-      text-shadow: 0 0 5px #00ff88, 0 0 10px #00ff88;
     }
     #gameOverScreen {
       display: none;
@@ -23,30 +22,20 @@
       text-align: center;
       color: white;
       font-family: Arial, sans-serif;
-      background: rgba(0, 0, 0, 0.85);
-      padding: 20px 40px;
-      border-radius: 10px;
-      box-shadow: 0 0 20px #00ff88;
     }
     #restartBtn {
-      margin-top: 20px;
-      padding: 12px 24px;
-      font-size: 20px;
+      margin-top: 10px;
+      padding: 10px 20px;
+      font-size: 18px;
       border: none;
-      border-radius: 8px;
-      background: linear-gradient(90deg, #00ff88, #0099ff);
-      color: black;
+      border-radius: 5px;
+      background: #00ff88;
       cursor: pointer;
-      transition: 0.2s;
-    }
-    #restartBtn:hover {
-      transform: scale(1.1);
-      background: linear-gradient(90deg, #0099ff, #00ff88);
     }
   </style>
 </head>
 <body>
-  <div id="ui">Score: 0 | Best: 0</div>
+  <div id="ui">Score: 0</div>
   <div id="gameOverScreen">
     <h1>Game Over!</h1>
     <p id="finalScore"></p>
@@ -58,30 +47,22 @@
     // Scene setup
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer();
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
-    // Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-    scene.add(ambientLight);
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-    dirLight.position.set(5, 10, 7);
-    scene.add(dirLight);
-
     // Player
     const playerGeometry = new THREE.BoxGeometry(1, 1, 1);
-    const playerMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+    let playerMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
     const player = new THREE.Mesh(playerGeometry, playerMaterial);
     scene.add(player);
     player.position.set(0, 0.5, 0);
 
-    // Shield aura
-    const shieldGeometry = new THREE.SphereGeometry(1.2, 16, 16);
-    const shieldMaterial = new THREE.MeshBasicMaterial({ color: 0x0099ff, transparent: true, opacity: 0.3 });
-    const shieldAura = new THREE.Mesh(shieldGeometry, shieldMaterial);
-    shieldAura.visible = false;
-    scene.add(shieldAura);
+    // Lights
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+    dirLight.position.set(5, 10, 7);
+    scene.add(dirLight);
 
     // Ground
     const loader = new THREE.TextureLoader();
@@ -94,31 +75,23 @@
     ground.position.z = -100;
     scene.add(ground);
 
-    // Background (starfield)
+    // Background
     const starsTexture = loader.load("https://threejsfundamentals.org/threejs/resources/images/starfield.jpg");
     scene.background = starsTexture;
 
     // Camera
     camera.position.set(0, 4, 8);
 
-    // Game state
+    // Game vars
     let obstacles = [];
+    let coins = [];
     let powerUps = [];
-    let particles = [];
     let score = 0;
-    let bestScore = 0;
     let speed = 0.15;
     let gameOver = false;
-    let paused = false;
-    let shieldActive = false;
-    let shieldTimer = 0;
-    let multiplier = 1;
-    let multiplierTimer = 0;
-
-    // Jump & duck
-    let isJumping = false;
-    let jumpVelocity = 0;
-    let isDucking = false;
+    let shieldActive = false, shieldTimer = 0;
+    let magnetActive = false, magnetTimer = 0;
+    let slowMoActive = false, slowMoTimer = 0;
 
     // UI
     const scoreDisplay = document.getElementById("ui");
@@ -126,204 +99,202 @@
     const finalScore = document.getElementById("finalScore");
     const restartBtn = document.getElementById("restartBtn");
 
+    // Physics
+    let velocityY = 0;
+    const gravity = -0.015;
+    const jumpForce = 0.35;
+    let isGrounded = true;
+    let isSliding = false;
+    let slideTimer = 0;
+
     // Controls
-    let moveLeft = false;
-    let moveRight = false;
+    let moveLeft = false, moveRight = false;
     window.addEventListener("keydown", (e) => {
       if (e.key === "ArrowLeft") moveLeft = true;
       if (e.key === "ArrowRight") moveRight = true;
-      if (e.key === " " && !isJumping && !isDucking) {
-        isJumping = true;
-        jumpVelocity = 0.25;
+      if (e.code === "Space" && isGrounded && !isSliding) {
+        velocityY = jumpForce;
+        isGrounded = false;
       }
-      if (e.key === "ArrowDown" && !isJumping) {
-        isDucking = true;
+      if (e.key === "Shift" && isGrounded && !isSliding) {
+        isSliding = true;
+        slideTimer = 60; // frames
         player.scale.y = 0.5;
         player.position.y = 0.25;
       }
-      if (e.key.toLowerCase() === "p") paused = !paused;
     });
     window.addEventListener("keyup", (e) => {
       if (e.key === "ArrowLeft") moveLeft = false;
       if (e.key === "ArrowRight") moveRight = false;
-      if (e.key === "ArrowDown") {
-        isDucking = false;
-        player.scale.y = 1;
-        player.position.y = 0.5;
-      }
     });
 
-    // Power-up types
-    const powerTypes = ["shield", "speed", "slow", "double"];
-
+    // Spawning
     function spawnObstacle() {
-      const size = Math.random() < 0.5 ? 1 : 2;
-      const geometry = new THREE.BoxGeometry(1, size, 1);
-      const material = new THREE.MeshStandardMaterial({ color: 0xff3333 });
-      const obstacle = new THREE.Mesh(geometry, material);
-      obstacle.position.x = (Math.random() - 0.5) * 10;
-      obstacle.position.y = size / 2;
+      let type = Math.random();
+      let geometry, material, obstacle;
+
+      if (type < 0.33) { // Low wall → jump
+        geometry = new THREE.BoxGeometry(2, 0.7, 1);
+        material = new THREE.MeshStandardMaterial({ color: 0xffaa33 });
+      } else if (type < 0.66) { // Tall wall → slide
+        geometry = new THREE.BoxGeometry(2, 2.5, 1);
+        material = new THREE.MeshStandardMaterial({ color: 0x3399ff });
+      } else { // Cube → dodge
+        geometry = new THREE.BoxGeometry(1, 1, 1);
+        material = new THREE.MeshStandardMaterial({ color: 0xff3333 });
+      }
+
+      obstacle = new THREE.Mesh(geometry, material);
+      obstacle.position.x = (Math.floor(Math.random() * 3) - 1) * 4;
+      obstacle.position.y = geometry.parameters.height / 2;
       obstacle.position.z = -50;
       scene.add(obstacle);
-      obstacles.push(obstacle);
+      obstacles.push({ mesh: obstacle, type });
     }
 
-    function spawnPowerUp() {
-      const type = powerTypes[Math.floor(Math.random() * powerTypes.length)];
-      const geometry = new THREE.SphereGeometry(0.5, 16, 16);
-      let color = 0x00ffff;
-      if (type === "shield") color = 0x0099ff;
-      if (type === "speed") color = 0xffcc00;
-      if (type === "slow") color = 0xff00ff;
-      if (type === "double") color = 0x00ff88;
-      const material = new THREE.MeshStandardMaterial({ color, emissive: color });
-      const powerUp = new THREE.Mesh(geometry, material);
-      powerUp.type = type;
-      powerUp.position.x = (Math.random() - 0.5) * 10;
-      powerUp.position.y = 0.5;
-      powerUp.position.z = -50;
-      scene.add(powerUp);
-      powerUps.push(powerUp);
-    }
-
-    function spawnParticles(x, y, z, color=0xff3333) {
-      for (let i = 0; i < 20; i++) {
-        const geom = new THREE.SphereGeometry(0.1, 6, 6);
-        const mat = new THREE.MeshBasicMaterial({ color });
-        const p = new THREE.Mesh(geom, mat);
-        p.position.set(x, y, z);
-        p.velocity = new THREE.Vector3((Math.random()-0.5)*0.2, Math.random()*0.2, (Math.random()-0.5)*0.2);
-        scene.add(p);
-        particles.push(p);
+    function spawnCoinRow() {
+      for (let i = -1; i <= 1; i++) {
+        const geometry = new THREE.TorusGeometry(0.4, 0.15, 16, 32);
+        const material = new THREE.MeshStandardMaterial({ color: 0xffff00, emissive: 0x444400 });
+        const coin = new THREE.Mesh(geometry, material);
+        coin.rotation.x = Math.PI / 2;
+        coin.position.set(i * 4, 1, -50);
+        scene.add(coin);
+        coins.push(coin);
       }
     }
 
+    function spawnRandomPowerUp() {
+      const rand = Math.random();
+      let color, type;
+      if (rand < 0.33) { color = 0x00ffff; type = "shield"; }
+      else if (rand < 0.66) { color = 0xffff00; type = "magnet"; }
+      else { color = 0xff00ff; type = "slowmo"; }
+
+      const powerUp = new THREE.Mesh(new THREE.SphereGeometry(0.6, 16, 16),
+        new THREE.MeshStandardMaterial({ color, emissive: color }));
+      powerUp.position.set((Math.floor(Math.random() * 3) - 1) * 4, 0.6, -50);
+      scene.add(powerUp);
+      powerUps.push({ mesh: powerUp, type });
+    }
+
+    // Reset
     function resetGame() {
-      obstacles.forEach(o => scene.remove(o));
-      powerUps.forEach(p => scene.remove(p));
-      particles.forEach(p => scene.remove(p));
-      obstacles = [];
-      powerUps = [];
-      particles = [];
-      score = 0;
-      speed = 0.15;
+      [...obstacles, ...coins, ...powerUps].forEach(o => scene.remove(o.mesh || o));
+      obstacles = []; coins = []; powerUps = [];
+      score = 0; speed = 0.15;
       gameOver = false;
-      paused = false;
-      shieldActive = false;
-      multiplier = 1;
+      shieldActive = magnetActive = slowMoActive = false;
       player.material.color.set(0x00ff00);
       player.position.set(0, 0.5, 0);
-      player.scale.y = 1;
-      scoreDisplay.textContent = `Score: 0 | Best: ${bestScore}`;
+      scoreDisplay.textContent = "Score: 0";
       gameOverScreen.style.display = "none";
       animate();
     }
     restartBtn.addEventListener("click", resetGame);
 
+    // Main loop
     function animate() {
-      if (gameOver || paused) return;
+      if (gameOver) return;
       requestAnimationFrame(animate);
 
-      // Movement
-      if (moveLeft && player.position.x > -9) player.position.x -= 0.15;
-      if (moveRight && player.position.x < 9) player.position.x += 0.15;
+      // Move player
+      if (moveLeft && player.position.x > -8) player.position.x -= 0.2;
+      if (moveRight && player.position.x < 8) player.position.x += 0.2;
 
-      // Jump
-      if (isJumping) {
-        player.position.y += jumpVelocity;
-        jumpVelocity -= 0.02;
-        if (player.position.y <= (isDucking ? 0.25 : 0.5)) {
-          player.position.y = (isDucking ? 0.25 : 0.5);
-          isJumping = false;
+      // Jump + slide
+      velocityY += gravity;
+      player.position.y += velocityY;
+      if (player.position.y <= 0.5 && !isSliding) {
+        player.position.y = 0.5; velocityY = 0; isGrounded = true;
+      }
+      if (isSliding) {
+        slideTimer--;
+        if (slideTimer <= 0) {
+          isSliding = false;
+          player.scale.y = 1;
+          player.position.y = 0.5;
         }
       }
 
-      // Ground scroll
-      groundTexture.offset.y -= speed * 0.02;
+      // Spawns
+      if (Math.random() < 0.02) spawnObstacle();
+      if (Math.random() < 0.005) spawnCoinRow();
+      if (Math.random() < 0.002) spawnRandomPowerUp();
 
-      // Spawn logic
-      if (Math.random() < 0.02 + score * 0.0001) spawnObstacle();
-      if (Math.random() < 0.004) spawnPowerUp();
+      let currentSpeed = slowMoActive ? speed * 0.5 : speed;
 
-      // Collisions
-      const playerBox = new THREE.Box3().setFromObject(player);
-
+      // Obstacles
       obstacles.forEach((o, i) => {
-        o.position.z += speed;
-        if (o.position.z > 5) {
-          scene.remove(o);
-          obstacles.splice(i, 1);
-          score += 1 * multiplier;
-          scoreDisplay.textContent = `Score: ${score} | Best: ${bestScore}`;
-          speed += 0.0005;
-        } else {
-          if (playerBox.intersectsBox(new THREE.Box3().setFromObject(o))) {
+        o.mesh.position.z += currentSpeed;
+
+        if (Math.abs(player.position.x - o.mesh.position.x) < 1.5 &&
+            Math.abs(player.position.z - o.mesh.position.z) < 1.5) {
+          let hit = false;
+          if (o.type < 0.33 && player.position.y <= 1.0) hit = true;   // low wall
+          if (o.type >= 0.33 && o.type < 0.66 && !isSliding) hit = true; // tall wall
+          if (o.type >= 0.66) hit = true; // cube always hits
+
+          if (hit) {
             if (!shieldActive) {
-              spawnParticles(o.position.x, o.position.y, o.position.z);
               gameOver = true;
-              if (score > bestScore) bestScore = score;
-              finalScore.textContent = `Final Score: ${score} | Best: ${bestScore}`;
+              finalScore.textContent = "Final Score: " + score;
               gameOverScreen.style.display = "block";
             } else {
-              spawnParticles(o.position.x, o.position.y, o.position.z, 0x0099ff);
-              scene.remove(o);
-              obstacles.splice(i, 1);
+              scene.remove(o.mesh); obstacles.splice(i, 1);
             }
           }
         }
+        if (o.mesh.position.z > 5) {
+          scene.remove(o.mesh); obstacles.splice(i, 1);
+          score++; scoreDisplay.textContent = "Score: " + score;
+          speed += 0.0005;
+        }
       });
 
+      // Coins
+      coins.forEach((coin, i) => {
+        coin.position.z += currentSpeed;
+        coin.rotation.y += 0.1;
+        let dx = player.position.x - coin.position.x;
+        let dy = player.position.y - coin.position.y;
+        let dz = player.position.z - coin.position.z;
+        let dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+
+        if (dist < 1.2 || (magnetActive && dist < 5)) {
+          score += 10;
+          scoreDisplay.textContent = "Score: " + score;
+          scene.remove(coin); coins.splice(i, 1);
+        }
+        if (coin.position.z > 5) {
+          scene.remove(coin); coins.splice(i, 1);
+        }
+      });
+
+      // Power-ups
       powerUps.forEach((p, i) => {
-        p.position.z += speed;
-        p.rotation.y += 0.05;
-        if (p.position.z > 5) {
-          scene.remove(p);
-          powerUps.splice(i, 1);
-        } else if (playerBox.intersectsBox(new THREE.Box3().setFromObject(p))) {
+        p.mesh.position.z += currentSpeed;
+        let dx = player.position.x - p.mesh.position.x;
+        let dz = player.position.z - p.mesh.position.z;
+        if (Math.abs(dx) < 1 && Math.abs(dz) < 1 && Math.abs(player.position.y - p.mesh.position.y) < 1) {
           if (p.type === "shield") {
-            shieldActive = true;
-            shieldTimer = 300;
-            shieldAura.visible = true;
+            shieldActive = true; shieldTimer = 600;
+            player.material.color.set(0x0099ff);
+          } else if (p.type === "magnet") {
+            magnetActive = true; magnetTimer = 600;
+          } else if (p.type === "slowmo") {
+            slowMoActive = true; slowMoTimer = 300;
           }
-          if (p.type === "speed") speed *= 1.5;
-          if (p.type === "slow") speed *= 0.5;
-          if (p.type === "double") {
-            multiplier = 2;
-            multiplierTimer = 500;
-          }
-          score += 5 * multiplier;
-          scene.remove(p);
-          powerUps.splice(i, 1);
+          scene.remove(p.mesh); powerUps.splice(i, 1);
         }
       });
 
-      // Shield timer
-      if (shieldActive) {
-        shieldTimer--;
-        shieldAura.position.copy(player.position);
-        if (shieldTimer <= 0) {
-          shieldActive = false;
-          shieldAura.visible = false;
-        }
-      }
+      // Timers
+      if (shieldActive && --shieldTimer <= 0) { shieldActive = false; player.material.color.set(0x00ff00); }
+      if (magnetActive && --magnetTimer <= 0) magnetActive = false;
+      if (slowMoActive && --slowMoTimer <= 0) slowMoActive = false;
 
-      // Multiplier timer
-      if (multiplier > 1) {
-        multiplierTimer--;
-        if (multiplierTimer <= 0) multiplier = 1;
-      }
-
-      // Particle update
-      particles.forEach((p, i) => {
-        p.position.add(p.velocity);
-        p.material.opacity -= 0.01;
-        if (p.material.opacity <= 0) {
-          scene.remove(p);
-          particles.splice(i, 1);
-        }
-      });
-
-      // Camera follow
+      // Camera
       camera.position.x = player.position.x * 0.5;
       camera.lookAt(player.position.x, 0, -20);
 
