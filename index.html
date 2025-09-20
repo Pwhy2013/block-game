@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D Endless Runner with Power-Ups</title>
+  <title>3D Endless Runner Deluxe</title>
   <style>
     body { margin: 0; overflow: hidden; background: #111; }
     #ui {
@@ -23,7 +23,7 @@
       text-align: center;
       color: white;
       font-family: Arial, sans-serif;
-      background: rgba(0, 0, 0, 0.8);
+      background: rgba(0, 0, 0, 0.85);
       padding: 20px 40px;
       border-radius: 10px;
       box-shadow: 0 0 20px #00ff88;
@@ -46,7 +46,7 @@
   </style>
 </head>
 <body>
-  <div id="ui">Score: 0</div>
+  <div id="ui">Score: 0 | Best: 0</div>
   <div id="gameOverScreen">
     <h1>Game Over!</h1>
     <p id="finalScore"></p>
@@ -55,18 +55,12 @@
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
   <script>
+    // Scene setup
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer();
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
-
-    // Player
-    const playerGeometry = new THREE.BoxGeometry(1, 1, 1);
-    let playerMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
-    const player = new THREE.Mesh(playerGeometry, playerMaterial);
-    scene.add(player);
-    player.position.set(0, 0.5, 0);
 
     // Lights
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -75,7 +69,21 @@
     dirLight.position.set(5, 10, 7);
     scene.add(dirLight);
 
-    // Ground with moving texture
+    // Player
+    const playerGeometry = new THREE.BoxGeometry(1, 1, 1);
+    const playerMaterial = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+    const player = new THREE.Mesh(playerGeometry, playerMaterial);
+    scene.add(player);
+    player.position.set(0, 0.5, 0);
+
+    // Shield aura
+    const shieldGeometry = new THREE.SphereGeometry(1.2, 16, 16);
+    const shieldMaterial = new THREE.MeshBasicMaterial({ color: 0x0099ff, transparent: true, opacity: 0.3 });
+    const shieldAura = new THREE.Mesh(shieldGeometry, shieldMaterial);
+    shieldAura.visible = false;
+    scene.add(shieldAura);
+
+    // Ground
     const loader = new THREE.TextureLoader();
     const groundTexture = loader.load("https://threejsfundamentals.org/threejs/resources/images/checker.png");
     groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
@@ -86,51 +94,37 @@
     ground.position.z = -100;
     scene.add(ground);
 
-    // Skybox
+    // Background (starfield)
     const starsTexture = loader.load("https://threejsfundamentals.org/threejs/resources/images/starfield.jpg");
     scene.background = starsTexture;
 
     // Camera
     camera.position.set(0, 4, 8);
 
+    // Game state
     let obstacles = [];
     let powerUps = [];
+    let particles = [];
     let score = 0;
-    let speed = 0.1;
+    let bestScore = 0;
+    let speed = 0.15;
     let gameOver = false;
+    let paused = false;
     let shieldActive = false;
     let shieldTimer = 0;
+    let multiplier = 1;
+    let multiplierTimer = 0;
+
+    // Jump & duck
     let isJumping = false;
     let jumpVelocity = 0;
+    let isDucking = false;
 
+    // UI
     const scoreDisplay = document.getElementById("ui");
     const gameOverScreen = document.getElementById("gameOverScreen");
     const finalScore = document.getElementById("finalScore");
     const restartBtn = document.getElementById("restartBtn");
-
-    function spawnObstacle() {
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshStandardMaterial({ color: 0xff3333 });
-      const obstacle = new THREE.Mesh(geometry, material);
-      obstacle.position.x = (Math.random() - 0.5) * 10;
-      obstacle.position.y = 0.5;
-      obstacle.position.z = -50;
-      scene.add(obstacle);
-      obstacles.push(obstacle);
-    }
-
-    function spawnPowerUp() {
-      const geometry = new THREE.SphereGeometry(0.5, 16, 16);
-      const material = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff });
-      const powerUp = new THREE.Mesh(geometry, material);
-
-      // Add glow using emissive
-      powerUp.position.x = (Math.random() - 0.5) * 10;
-      powerUp.position.y = 0.5;
-      powerUp.position.z = -50;
-      scene.add(powerUp);
-      powerUps.push(powerUp);
-    }
 
     // Controls
     let moveLeft = false;
@@ -138,119 +132,198 @@
     window.addEventListener("keydown", (e) => {
       if (e.key === "ArrowLeft") moveLeft = true;
       if (e.key === "ArrowRight") moveRight = true;
-      if (e.key === " " && !isJumping) {
+      if (e.key === " " && !isJumping && !isDucking) {
         isJumping = true;
         jumpVelocity = 0.25;
       }
+      if (e.key === "ArrowDown" && !isJumping) {
+        isDucking = true;
+        player.scale.y = 0.5;
+        player.position.y = 0.25;
+      }
+      if (e.key.toLowerCase() === "p") paused = !paused;
     });
     window.addEventListener("keyup", (e) => {
       if (e.key === "ArrowLeft") moveLeft = false;
       if (e.key === "ArrowRight") moveRight = false;
+      if (e.key === "ArrowDown") {
+        isDucking = false;
+        player.scale.y = 1;
+        player.position.y = 0.5;
+      }
     });
+
+    // Power-up types
+    const powerTypes = ["shield", "speed", "slow", "double"];
+
+    function spawnObstacle() {
+      const size = Math.random() < 0.5 ? 1 : 2;
+      const geometry = new THREE.BoxGeometry(1, size, 1);
+      const material = new THREE.MeshStandardMaterial({ color: 0xff3333 });
+      const obstacle = new THREE.Mesh(geometry, material);
+      obstacle.position.x = (Math.random() - 0.5) * 10;
+      obstacle.position.y = size / 2;
+      obstacle.position.z = -50;
+      scene.add(obstacle);
+      obstacles.push(obstacle);
+    }
+
+    function spawnPowerUp() {
+      const type = powerTypes[Math.floor(Math.random() * powerTypes.length)];
+      const geometry = new THREE.SphereGeometry(0.5, 16, 16);
+      let color = 0x00ffff;
+      if (type === "shield") color = 0x0099ff;
+      if (type === "speed") color = 0xffcc00;
+      if (type === "slow") color = 0xff00ff;
+      if (type === "double") color = 0x00ff88;
+      const material = new THREE.MeshStandardMaterial({ color, emissive: color });
+      const powerUp = new THREE.Mesh(geometry, material);
+      powerUp.type = type;
+      powerUp.position.x = (Math.random() - 0.5) * 10;
+      powerUp.position.y = 0.5;
+      powerUp.position.z = -50;
+      scene.add(powerUp);
+      powerUps.push(powerUp);
+    }
+
+    function spawnParticles(x, y, z, color=0xff3333) {
+      for (let i = 0; i < 20; i++) {
+        const geom = new THREE.SphereGeometry(0.1, 6, 6);
+        const mat = new THREE.MeshBasicMaterial({ color });
+        const p = new THREE.Mesh(geom, mat);
+        p.position.set(x, y, z);
+        p.velocity = new THREE.Vector3((Math.random()-0.5)*0.2, Math.random()*0.2, (Math.random()-0.5)*0.2);
+        scene.add(p);
+        particles.push(p);
+      }
+    }
 
     function resetGame() {
       obstacles.forEach(o => scene.remove(o));
       powerUps.forEach(p => scene.remove(p));
+      particles.forEach(p => scene.remove(p));
       obstacles = [];
       powerUps = [];
+      particles = [];
       score = 0;
-      speed = 0.1;
+      speed = 0.15;
       gameOver = false;
+      paused = false;
       shieldActive = false;
+      multiplier = 1;
       player.material.color.set(0x00ff00);
       player.position.set(0, 0.5, 0);
-      scoreDisplay.textContent = "Score: 0";
+      player.scale.y = 1;
+      scoreDisplay.textContent = `Score: 0 | Best: ${bestScore}`;
       gameOverScreen.style.display = "none";
       animate();
     }
-
     restartBtn.addEventListener("click", resetGame);
 
     function animate() {
-      if (gameOver) return;
+      if (gameOver || paused) return;
       requestAnimationFrame(animate);
 
-      // Move player horizontally
+      // Movement
       if (moveLeft && player.position.x > -9) player.position.x -= 0.15;
       if (moveRight && player.position.x < 9) player.position.x += 0.15;
 
-      // Jump mechanic
+      // Jump
       if (isJumping) {
         player.position.y += jumpVelocity;
         jumpVelocity -= 0.02;
-        if (player.position.y <= 0.5) {
-          player.position.y = 0.5;
+        if (player.position.y <= (isDucking ? 0.25 : 0.5)) {
+          player.position.y = (isDucking ? 0.25 : 0.5);
           isJumping = false;
         }
       }
 
-      // Animate ground
+      // Ground scroll
       groundTexture.offset.y -= speed * 0.02;
 
-      // Spawn obstacles & power-ups
+      // Spawn logic
       if (Math.random() < 0.02 + score * 0.0001) spawnObstacle();
-      if (Math.random() < 0.005) spawnPowerUp();
+      if (Math.random() < 0.004) spawnPowerUp();
 
-      // Player bounding box
+      // Collisions
       const playerBox = new THREE.Box3().setFromObject(player);
 
-      // Move obstacles
-      obstacles.forEach((obstacle, index) => {
-        obstacle.position.z += speed;
-
-        const obstacleBox = new THREE.Box3().setFromObject(obstacle);
-        if (playerBox.intersectsBox(obstacleBox)) {
-          if (!shieldActive) {
-            gameOver = true;
-            finalScore.textContent = "Final Score: " + score;
-            gameOverScreen.style.display = "block";
-          } else {
-            scene.remove(obstacle);
-            obstacles.splice(index, 1);
+      obstacles.forEach((o, i) => {
+        o.position.z += speed;
+        if (o.position.z > 5) {
+          scene.remove(o);
+          obstacles.splice(i, 1);
+          score += 1 * multiplier;
+          scoreDisplay.textContent = `Score: ${score} | Best: ${bestScore}`;
+          speed += 0.0005;
+        } else {
+          if (playerBox.intersectsBox(new THREE.Box3().setFromObject(o))) {
+            if (!shieldActive) {
+              spawnParticles(o.position.x, o.position.y, o.position.z);
+              gameOver = true;
+              if (score > bestScore) bestScore = score;
+              finalScore.textContent = `Final Score: ${score} | Best: ${bestScore}`;
+              gameOverScreen.style.display = "block";
+            } else {
+              spawnParticles(o.position.x, o.position.y, o.position.z, 0x0099ff);
+              scene.remove(o);
+              obstacles.splice(i, 1);
+            }
           }
-        }
-
-        if (obstacle.position.z > 5) {
-          scene.remove(obstacle);
-          obstacles.splice(index, 1);
-          score++;
-          scoreDisplay.textContent = "Score: " + score;
-          speed += 0.001;
         }
       });
 
-      // Move power-ups
-      powerUps.forEach((powerUp, index) => {
-        powerUp.position.z += speed;
-        powerUp.rotation.y += 0.05;
-
-        const powerUpBox = new THREE.Box3().setFromObject(powerUp);
-        if (playerBox.intersectsBox(powerUpBox)) {
-          shieldActive = true;
-          shieldTimer = 300; // frames
-          player.material.color.set(0x0099ff);
-          score += 5;
-          scoreDisplay.textContent = "Score: " + score;
-          scene.remove(powerUp);
-          powerUps.splice(index, 1);
-        }
-
-        if (powerUp.position.z > 5) {
-          scene.remove(powerUp);
-          powerUps.splice(index, 1);
+      powerUps.forEach((p, i) => {
+        p.position.z += speed;
+        p.rotation.y += 0.05;
+        if (p.position.z > 5) {
+          scene.remove(p);
+          powerUps.splice(i, 1);
+        } else if (playerBox.intersectsBox(new THREE.Box3().setFromObject(p))) {
+          if (p.type === "shield") {
+            shieldActive = true;
+            shieldTimer = 300;
+            shieldAura.visible = true;
+          }
+          if (p.type === "speed") speed *= 1.5;
+          if (p.type === "slow") speed *= 0.5;
+          if (p.type === "double") {
+            multiplier = 2;
+            multiplierTimer = 500;
+          }
+          score += 5 * multiplier;
+          scene.remove(p);
+          powerUps.splice(i, 1);
         }
       });
 
       // Shield timer
       if (shieldActive) {
         shieldTimer--;
+        shieldAura.position.copy(player.position);
         if (shieldTimer <= 0) {
           shieldActive = false;
-          player.material.color.set(0x00ff00);
+          shieldAura.visible = false;
         }
       }
 
-      // Camera follows
+      // Multiplier timer
+      if (multiplier > 1) {
+        multiplierTimer--;
+        if (multiplierTimer <= 0) multiplier = 1;
+      }
+
+      // Particle update
+      particles.forEach((p, i) => {
+        p.position.add(p.velocity);
+        p.material.opacity -= 0.01;
+        if (p.material.opacity <= 0) {
+          scene.remove(p);
+          particles.splice(i, 1);
+        }
+      });
+
+      // Camera follow
       camera.position.x = player.position.x * 0.5;
       camera.lookAt(player.position.x, 0, -20);
 
