@@ -12,6 +12,7 @@
       color: white;
       font-family: Arial, sans-serif;
       font-size: 20px;
+      text-shadow: 0 0 5px #00ff88, 0 0 10px #00ff88;
     }
     #gameOverScreen {
       display: none;
@@ -22,15 +23,25 @@
       text-align: center;
       color: white;
       font-family: Arial, sans-serif;
+      background: rgba(0, 0, 0, 0.8);
+      padding: 20px 40px;
+      border-radius: 10px;
+      box-shadow: 0 0 20px #00ff88;
     }
     #restartBtn {
-      margin-top: 10px;
-      padding: 10px 20px;
-      font-size: 18px;
+      margin-top: 20px;
+      padding: 12px 24px;
+      font-size: 20px;
       border: none;
-      border-radius: 5px;
-      background: #00ff88;
+      border-radius: 8px;
+      background: linear-gradient(90deg, #00ff88, #0099ff);
+      color: black;
       cursor: pointer;
+      transition: 0.2s;
+    }
+    #restartBtn:hover {
+      transform: scale(1.1);
+      background: linear-gradient(90deg, #0099ff, #00ff88);
     }
   </style>
 </head>
@@ -64,7 +75,7 @@
     dirLight.position.set(5, 10, 7);
     scene.add(dirLight);
 
-    // Ground with texture
+    // Ground with moving texture
     const loader = new THREE.TextureLoader();
     const groundTexture = loader.load("https://threejsfundamentals.org/threejs/resources/images/checker.png");
     groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
@@ -76,9 +87,8 @@
     scene.add(ground);
 
     // Skybox
-    // Skybox (star texture)
-const starsTexture = loader.load("https://threejsfundamentals.org/threejs/resources/images/starfield.jpg");
-scene.background = starsTexture;
+    const starsTexture = loader.load("https://threejsfundamentals.org/threejs/resources/images/starfield.jpg");
+    scene.background = starsTexture;
 
     // Camera
     camera.position.set(0, 4, 8);
@@ -90,6 +100,8 @@ scene.background = starsTexture;
     let gameOver = false;
     let shieldActive = false;
     let shieldTimer = 0;
+    let isJumping = false;
+    let jumpVelocity = 0;
 
     const scoreDisplay = document.getElementById("ui");
     const gameOverScreen = document.getElementById("gameOverScreen");
@@ -111,6 +123,8 @@ scene.background = starsTexture;
       const geometry = new THREE.SphereGeometry(0.5, 16, 16);
       const material = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff });
       const powerUp = new THREE.Mesh(geometry, material);
+
+      // Add glow using emissive
       powerUp.position.x = (Math.random() - 0.5) * 10;
       powerUp.position.y = 0.5;
       powerUp.position.z = -50;
@@ -124,6 +138,10 @@ scene.background = starsTexture;
     window.addEventListener("keydown", (e) => {
       if (e.key === "ArrowLeft") moveLeft = true;
       if (e.key === "ArrowRight") moveRight = true;
+      if (e.key === " " && !isJumping) {
+        isJumping = true;
+        jumpVelocity = 0.25;
+      }
     });
     window.addEventListener("keyup", (e) => {
       if (e.key === "ArrowLeft") moveLeft = false;
@@ -152,20 +170,36 @@ scene.background = starsTexture;
       if (gameOver) return;
       requestAnimationFrame(animate);
 
-      // Move player
+      // Move player horizontally
       if (moveLeft && player.position.x > -9) player.position.x -= 0.15;
       if (moveRight && player.position.x < 9) player.position.x += 0.15;
+
+      // Jump mechanic
+      if (isJumping) {
+        player.position.y += jumpVelocity;
+        jumpVelocity -= 0.02;
+        if (player.position.y <= 0.5) {
+          player.position.y = 0.5;
+          isJumping = false;
+        }
+      }
+
+      // Animate ground
+      groundTexture.offset.y -= speed * 0.02;
 
       // Spawn obstacles & power-ups
       if (Math.random() < 0.02 + score * 0.0001) spawnObstacle();
       if (Math.random() < 0.005) spawnPowerUp();
 
+      // Player bounding box
+      const playerBox = new THREE.Box3().setFromObject(player);
+
       // Move obstacles
       obstacles.forEach((obstacle, index) => {
         obstacle.position.z += speed;
 
-        if (Math.abs(player.position.x - obstacle.position.x) < 1 &&
-            Math.abs(player.position.z - obstacle.position.z) < 1) {
+        const obstacleBox = new THREE.Box3().setFromObject(obstacle);
+        if (playerBox.intersectsBox(obstacleBox)) {
           if (!shieldActive) {
             gameOver = true;
             finalScore.textContent = "Final Score: " + score;
@@ -188,9 +222,10 @@ scene.background = starsTexture;
       // Move power-ups
       powerUps.forEach((powerUp, index) => {
         powerUp.position.z += speed;
+        powerUp.rotation.y += 0.05;
 
-        if (Math.abs(player.position.x - powerUp.position.x) < 1 &&
-            Math.abs(player.position.z - powerUp.position.z) < 1) {
+        const powerUpBox = new THREE.Box3().setFromObject(powerUp);
+        if (playerBox.intersectsBox(powerUpBox)) {
           shieldActive = true;
           shieldTimer = 300; // frames
           player.material.color.set(0x0099ff);
